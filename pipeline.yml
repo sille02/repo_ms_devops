@@ -23,10 +23,11 @@ stages:
 
       - job: ArtifactRegistration
         steps:
+
           - task: ServiceNow-DevOps-Agent-Artifact-Registration@1
             displayName: 'ServiceNow DevOps Agent Artifact Registration'
             inputs:
-              connectedServiceName: 'ngrome1-adoTests-ServiceNow DevOps Service Connection'
+              connectedServiceName: 'demotechnologywf14058-Corpsite Mobile-ServiceNow DevOps Service Connection'
               artifactsPayload: |
                 {
                   "artifacts": [
@@ -46,6 +47,12 @@ stages:
     jobs:
       - job: Test
         steps:
+          - task: ServiceNow-DevOps-Build-Sonar-Registration@1
+            inputs:
+              connectedServiceName: 'demotechnologywf14058-Corpsite Mobile-ServiceNow DevOps Service Connection'
+              sonarProjectKey: 'prathyushkondapalli_DevOpsDemoHub'
+              sonarInstanceUrl: 'https://sonarcloud.io/'
+              
           - task: VSTest@2
             inputs:
               platform: '$(buildPlatform)'
@@ -64,7 +71,7 @@ stages:
         - task: ServiceNow-DevOps-Agent-Package-Registration@1
           displayName: 'ServiceNow DevOps Agent Package Registration'
           inputs:
-            connectedServiceName: 'ngrome1-adoTests-ServiceNow DevOps Service Connection'
+            connectedServiceName: 'demotechnologywf14058-Corpsite Mobile-ServiceNow DevOps Service Connection'
             packageName: 'see-power-amp-$(build.buildId)'
             artifactsPayload: |
                 {
@@ -89,77 +96,41 @@ stages:
                 }
           enabled: true
 
-  - stage: ProductionDeployment
+  - stage: ChangeAcceleration
     condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'))
     dependsOn: QAT
-    displayName: 'ProductionDeployment'
+    displayName: 'ChangeAcceleration'
     jobs:
       - job: ChangeAcceleration
         pool: server
         steps:
         - task: ServiceNow-DevOps-Server-Change-Acceleration@1
           inputs:
-            connectedServiceName: 'ngrome1-adoTests-ServiceNow DevOps Service Connection'
+            connectedServiceName: 'demotechnologywf14058-Corpsite Mobile-ServiceNow DevOps Service Connection'
             changeRequestDetails: |
               {
                 "setCloseCode" : true,
                 "attributes": {
-                  "requested_by": {
-                    "name": "DevOps Integration User"
+                  "requested_by":{
+                    "name":"DevOps Integration User"
                     },
-                  "short_description":"YAML-Automated software deployment for Enterprise-DevOps/sede-pt-bam",
-                  "description":"YAML-Deploying software to Enterprise-DevOps/sede-pt-bam which is integrated with the CI/CD pipeline. This software has gone through integrated testing.",
+                  "short_description":"Automated software deployment for Enterprise-DevOps/sede-pt-bam",
+                  "description":"Deploying software to Enterprise-DevOps/sede-pt-bam which is integrated with the CI/CD pipeline. This software has gone through integrated testing.",
                   "implementation_plan":"Software update is tested and results can be found in 'Test Summaries' Tab; When the change is approved the implementation happens automated by the CI/CD pipeline within the change planned start and end time window.",
                   "backout_plan":"When software fails in production, the previous software release will be re-deployed.",
                   "test_plan":"Testing if the software was successfully deployed happens either \n1) manually by the developer or \n2) automated via the CI/CD pipeline"
                   }
                 }
-
-      - job: 'DBUpgrade'
-        displayName: 'DBUpgrade'
-        dependsOn: 'ChangeAcceleration'
+                
+  - stage: ProdDeploy
+    displayName: 'Production Deployment'
+    dependsOn: ChangeAcceleration
+    jobs:
+      - job: 'Deploy'
+        displayName: 'Deployment'
         steps:
         - task: Bash@3
           inputs:
             targetType: 'inline'
             script: |
-                echo 'DB deployment / upgrade completed'
-
-      - job: DBTests
-        dependsOn: 'DBUpgrade'
-        steps:
-        - task: Bash@3
-          inputs:
-            targetType: 'inline'
-            script: |
-                echo 'DB Tests ran successfully'
-
-      - job: 'AppTier'
-        displayName: 'AppTier'
-        dependsOn: 'DBUpgrade'
-        steps:
-        - task: Bash@3
-          inputs:
-            targetType: 'inline'
-            script: |
-                echo 'Application Tier Deployment / upgrade completed'
-
-      - job: 'JobAgent'
-        displayName: 'JobAgent'
-        dependsOn: 'AppTier'
-        steps:
-        - task: Bash@3
-          inputs:
-            targetType: 'inline'
-            script: |
-                echo 'Job agents (background jobs) Deployment / upgrade completed'
-      
-      - job: FinalTests
-        dependsOn: 'JobAgent'
-        steps:
-        - task: Bash@3
-          inputs:
-            targetType: 'inline'
-            script: |
-                echo 'Final Accptance Tests ran successfully'
-
+                echo 'Deploy completed'
