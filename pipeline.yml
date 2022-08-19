@@ -1,0 +1,165 @@
+# ASP.NET Core (.NET Framework)
+
+
+# Build and test ASP.NET Core projects targeting the full .NET Framework.
+# Add steps that publish symbols, save build artifacts, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/languages/dotnet-core
+
+trigger:
+- master
+
+pool:
+  vmImage: 'windows-latest' 
+
+variables:
+  solution: '**/*.sln'
+  buildPlatform: 'Any CPU'
+  buildConfiguration: 'Release'
+
+stages:
+  - stage: BuildAndTest
+    displayName: 'Build and Test'
+    jobs:
+
+      - job: ArtifactRegistration
+        steps:
+          - task: ServiceNow-DevOps-Agent-Artifact-Registration@1
+            displayName: 'ServiceNow DevOps Agent Artifact Registration'
+            inputs:
+              connectedServiceName: 'ngrome1-adoTests-ServiceNow DevOps Service Connection'
+              artifactsPayload: |
+                {
+                  "artifacts": [
+                      {
+                        "name": "BuildDrop",
+                        "version": "1.$(Build.BuildId)",
+                        "semanticVersion": "1.$(Build.BuildId).0",
+                        "BuildNumber": "$(Build.BuildNumber)",
+                        "repositoryName": "DeployableRepo"
+                      }
+                  ]
+                }
+
+  - stage: QAT
+    condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'))
+    displayName: 'QAT'
+    jobs:
+      - job: Test
+        steps:
+          - task: VSTest@2
+            inputs:
+              platform: '$(buildPlatform)'
+              configuration: '$(buildConfiguration)'
+
+          - task: PublishTestResults@2
+            inputs:
+              testResultsFormat: 'VSTest'
+              testResultsFiles: |
+                **/TEST-*.xml
+                d:\a\_temp\TestResults\*.trx
+              mergeTestResults: true
+      - job: PackageRegistration
+        dependsOn: Test
+        steps:
+        - task: ServiceNow-DevOps-Agent-Package-Registration@1
+          displayName: 'ServiceNow DevOps Agent Package Registration'
+          inputs:
+            connectedServiceName: 'ngrome1-adoTests-ServiceNow DevOps Service Connection'
+            packageName: 'see-power-amp-$(build.buildId)'
+            artifactsPayload: |
+                {
+                "name": "see-power-amp-connectors-breeze",
+                "artifacts": [
+                {
+                "name": "BuildDrop",
+                "repositoryName": "DeployableRepo",
+                "version": "1.$(Build.BuildId)",
+
+                "pipelineName":"$(system.teamProject)/$(build.definitionName)",
+                "taskExecutionNumber":"$(build.buildId)",
+                "stageName":"$(system.jobDisplayName)",
+                "attemptNumber":"$(system.jobAttempt)",
+                "branchName":"$(build.sourceBranchName)"
+                }],
+                "pipelineName":"$(system.teamProject)/$(build.definitionName)",
+                "taskExecutionNumber":"$(Build.BuildId)",
+                "stageName":"$(system.jobDisplayName)",
+                "attemptNumber":"$(system.jobAttempt)",
+                "branchName":"$(build.sourceBranchName)"
+                }
+          enabled: true
+
+  - stage: ProductionDeployment
+    condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'))
+    dependsOn: QAT
+    displayName: 'ProductionDeployment'
+    jobs:
+      - job: ChangeAcceleration
+        pool: server
+        steps:
+        - task: ServiceNow-DevOps-Server-Change-Acceleration@1
+          inputs:
+            connectedServiceName: 'ngrome1-adoTests-ServiceNow DevOps Service Connection'
+            changeRequestDetails: |
+              {
+                "setCloseCode" : true,
+                "attributes": {
+                  "requested_by": {
+                    "name": "DevOps Integration User"
+                    },
+                  "short_description":"YAML-Automated software deployment for Enterprise-DevOps/sede-pt-bam",
+                  "description":"YAML-Deploying software to Enterprise-DevOps/sede-pt-bam which is integrated with the CI/CD pipeline. This software has gone through integrated testing.",
+                  "implementation_plan":"Software update is tested and results can be found in 'Test Summaries' Tab; When the change is approved the implementation happens automated by the CI/CD pipeline within the change planned start and end time window.",
+                  "backout_plan":"When software fails in production, the previous software release will be re-deployed.",
+                  "test_plan":"Testing if the software was successfully deployed happens either \n1) manually by the developer or \n2) automated via the CI/CD pipeline"
+                  }
+                }
+
+      - job: 'DBUpgrade'
+        displayName: 'DBUpgrade'
+        dependsOn: 'ChangeAcceleration'
+        steps:
+        - task: Bash@3
+          inputs:
+            targetType: 'inline'
+            script: |
+                echo 'DB deployment / upgrade completed'
+
+      - job: DBTests
+        dependsOn: 'DBUpgrade'
+        steps:
+        - task: Bash@3
+          inputs:
+            targetType: 'inline'
+            script: |
+                echo 'DB Tests ran successfully'
+
+      - job: 'AppTier'
+        displayName: 'AppTier'
+        dependsOn: 'DBUpgrade'
+        steps:
+        - task: Bash@3
+          inputs:
+            targetType: 'inline'
+            script: |
+                echo 'Application Tier Deployment / upgrade completed'
+
+      - job: 'JobAgent'
+        displayName: 'JobAgent'
+        dependsOn: 'AppTier'
+        steps:
+        - task: Bash@3
+          inputs:
+            targetType: 'inline'
+            script: |
+                echo 'Job agents (background jobs) Deployment / upgrade completed'
+      
+      - job: FinalTests
+        dependsOn: 'JobAgent'
+        steps:
+        - task: Bash@3
+          inputs:
+            targetType: 'inline'
+            script: |
+                echo 'Final Accptance Tests ran successfully'
+
